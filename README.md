@@ -1,5 +1,3 @@
-# docker-example
+# docker-examples
 
 Some Dockerfiles examples
-
-
