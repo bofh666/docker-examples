@@ -1,0 +1,58 @@
+FROM ubuntu:16.04
+
+ARG LANG=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get -y update && \
+    apt-get -y install --no-install-recommends --no-install-suggests apt-utils && \
+    apt-get -y install --no-install-recommends --no-install-suggests tzdata supervisor software-properties-common apt-transport-https wget git make \
+                                                                     python3 virtualenv unzip openssh-client rsync python-jinja2 && \
+    apt-get -y upgrade && \
+    add-apt-repository -y ppa:ansible/ansible && \
+    add-apt-repository -y ppa:ondrej/php && \
+    add-apt-repository -y "deb [arch=amd64] https://packages.confluent.io/deb/5.1 stable main" && \
+    wget -qO - https://packages.confluent.io/deb/5.1/archive.key | apt-key add - && \
+    apt-get -y update && \
+    apt-get -y install --no-install-recommends --no-install-suggests php7.2 php7.2-bcmath php7.2-bz2 php7.2-cli php7.2-common php7.2-curl php7.2-dba \
+                                                                     php7.2-enchant php7.2-fpm php7.2-gd php7.2-gmp php7.2-imap php7.2-json php7.2-ldap \
+                                                                     php7.2-mbstring php7.2-mysql php7.2-odbc php7.2-pgsql php7.2-pspell \
+                                                                     php7.2-readline php7.2-recode php7.2-redis php7.2-soap php7.2-sqlite3 php7.2-tidy \
+                                                                     php7.2-xml php7.2-zip php7.2-dev librdkafka-dev php-apcu virtualenv python-jinja2 \
+                                                                     postgresql-client ansible && \
+    ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime && \
+    dpkg-reconfigure --frontend=noninteractive tzdata && \
+    wget -O /usr/local/bin/composer https://getcomposer.org/composer.phar && \
+    chmod a+x /usr/local/bin/composer && \
+    mkdir -p /run/php && \
+    ln -sf /dev/stderr /var/log/php7.2-fpm.log
+
+RUN wget https://deb.nodesource.com/node_6.x/pool/main/n/nodejs/nodejs_6.10.0-1nodesource1~xenial1_amd64.deb && \
+    dpkg -i nodejs_6.10.0-1nodesource1~xenial1_amd64.deb
+
+RUN cd /tmp && \
+    git clone https://github.com/arnaud-lb/php-rdkafka.git && cd php-rdkafka && \
+    phpize && \
+    ./configure && \
+    make all -j 5 && \
+    chmod -x modules/rdkafka.so && \
+    cp modules/rdkafka.so /usr/lib/php/20170718
+
+COPY rdkafka.ini /etc/php/7.2/mods-available
+RUN phpenmod -v ALL -s ALL rdkafka
+
+COPY php.ini /etc/php/7.2/fpm
+COPY www.conf /etc/php/7.2/fpm/pool.d
+
+RUN virtualenv -p /usr/bin/python3 /opt/yacron && \
+    /opt/yacron/bin/pip install yacron && \
+    mkdir /etc/yacron
+
+COPY supervisor.sh /
+COPY supervisor.conf /etc/supervisor/conf.d
+COPY php-fpm.conf /etc/supervisor/conf.d
+
+RUN rm -rf /var/lib/apt/lists/* /tmp/php-rdkafka
+
+#EXPOSE 9000
+
+#ENTRYPOINT ["bash","/supervisor.sh"]

@@ -1,0 +1,55 @@
+FROM php:7.1-fpm
+
+ARG LANG=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
+
+RUN apt-get -y update && \
+    apt-get -y install apt-utils libbz2-dev libenchant-dev libpng-dev libgmp-dev libc-client-dev libkrb5-dev libldap2-dev \
+                       libmcrypt-dev unixodbc-dev libpq-dev libpspell-dev libedit-dev librecode-dev libxml2-dev libtidy-dev libxslt1-dev \
+                       software-properties-common wget gnupg apt-transport-https git supervisor openssh-client rsync && \
+    apt-get -y upgrade && \
+    pecl channel-update pecl.php.net
+
+RUN docker-php-source extract && \
+    { \
+        echo '# https://github.com/docker-library/php/issues/103#issuecomment-271413933'; \
+        echo 'AC_DEFUN([PHP_ALWAYS_SHARED],[])dnl'; \
+	echo; \
+	cat /usr/src/php/ext/odbc/config.m4; \
+    } > temp.m4 && \
+    mv temp.m4 /usr/src/php/ext/odbc/config.m4 && \
+    docker-php-ext-configure odbc --with-unixODBC=shared,/usr
+
+RUN cd /usr/src/php/ext/pdo_odbc && \
+    phpize && \
+    sed -ri 's@^ *test +"\$PHP_.*" *= *"no" *&& *PHP_.*=yes *$@#&@g' configure && \
+    ./configure --with-pdo-odbc=unixODBC,/usr
+
+RUN docker-php-ext-configure imap --with-kerberos --with-imap-ssl && \
+    docker-php-ext-install bcmath bz2 calendar dba enchant exif gd gettext gmp imap intl ldap mcrypt mysqli odbc opcache pcntl pdo_mysql \
+    pdo_odbc pdo_pgsql pgsql pspell recode shmop soap sockets sysvmsg sysvsem sysvshm tidy wddx xmlrpc xsl zip
+
+RUN echo "deb http://security.debian.org/debian-security jessie/updates main" >> /etc/apt/sources.list && \
+    add-apt-repository -y "deb [arch=amd64] https://packages.confluent.io/deb/5.1 stable main" && \
+    wget -qO - https://packages.confluent.io/deb/5.1/archive.key | apt-key add - && \
+    apt-get -y update && \
+    apt-get -y install librdkafka-dev && \
+    cd /tmp && git clone https://github.com/arnaud-lb/php-rdkafka.git && cd php-rdkafka && \
+    phpize && \
+    ./configure && \
+    make all -j 5 && \
+    cp modules/rdkafka.so /usr/local/lib/php/extensions/no-debug-non-zts-20160303 && \
+    echo "extension=rdkafka.so" > /usr/local/etc/php/conf.d/rdkafka.ini
+
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# PHP and Laravel specific configuration:
+# https://hackernoon.com/stop-deploying-laravel-manually-steal-this-docker-configuration-instead-da9ecf24cd2e
+
+RUN docker-php-source delete && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /tmp/php-rdkafka
+
+ENTRYPOINT while true; do sleep 30; done
